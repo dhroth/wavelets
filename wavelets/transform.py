@@ -56,7 +56,7 @@ def compute_optimal_scales(N, dt, dj, s0):
 def cwt(signal, wavelet, dt, dj):
     s0 = find_s0(wavelet, dt)
     widths = compute_optimal_scales(signal.shape[0], dt, dj, s0)
-    return cwt_time(signal, wavelet, widths, dt, axis=-1)
+    return cwt_time(signal, wavelet.time, widths, dt, axis=-1)
 
 def icwt(cwt, wavelet, dt, dj):
     """Reconstruct the original signal from the wavelet
