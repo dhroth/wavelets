@@ -8,9 +8,112 @@ import scipy.special
 
 from .wavelets import Morlet
 
-__all__ = ['cwt', 'WaveletAnalysis', 'WaveletTransform']
+__all__ = ['icwt', 'cwt']#, 'WaveletAnalysis', 'WaveletTransform']
+
+def find_s0(wavelet, dt):
+    """Find the smallest resolvable scale by finding where the
+    equivalent Fourier period is equal to 2 * dt. For a Morlet
+    wavelet, this is roughly 1.
+    """
+    def f(s):
+        return wavelet.fourier_period(s) - 2 * dt
+    return scipy.optimize.fsolve(f, 1)[0]
+
+def compute_optimal_scales(N, dt, dj, s0):
+    """Form a set of scales to use in the wavelet transform.
+
+    For non-orthogonal wavelet analysis, one can use an
+    arbitrary set of scales.
+
+    It is convenient to write the scales as fractional powers of
+    two:
+
+        s_j = s_0 * 2 ** (j * dj), j = 0, 1, ..., J
+
+        J = (1 / dj) * log2(N * dt / s_0)
+
+    s0 - smallest resolvable scale
+    J - largest scale
+
+    choose s0 so that the equivalent Fourier period is 2 * dt.
+
+    The choice of dj depends on the width in spectral space of
+    the wavelet function. For the Morlet, dj=0.5 is the largest
+    that still adequately samples scale. Smaller dj gives finer
+    scale resolution.
+    """
+    # dj is resolution
+    # s0 is smallest resolvable scale, chosen so that the equivalent
+    # Fourier period is approximately 2dt
+
+    # Largest scale
+    J = int((1 / dj) * np.log2(N * dt / s0))
+
+    sj = s0 * 2 ** (dj * np.arange(0, J + 1))
+    return sj
 
 
+def cwt(signal, wavelet, dt, dj):
+    s0 = find_s0(wavelet, dt)
+    widths = compute_optimal_scales(signal.shape[0], dt, dj, s0)
+    return cwt_time(signal, wavelet, widths, dt, axis=-1)
+
+def icwt(cwt, wavelet, dt, dj):
+    """Reconstruct the original signal from the wavelet
+    transform. See S3.i.
+
+    For non-orthogonal wavelet functions, it is possible to
+    reconstruct the original time series using an arbitrary
+    wavelet function. The simplest is to use a delta function.
+
+    The reconstructed time series is found as the sum of the
+    real part of the wavelet transform over all scales,
+
+    x_n = (dj * dt^(1/2)) / (C_d * Y_0(0)) \
+            * Sum_(j=0)^J { Re(W_n(s_j)) / s_j^(1/2) }
+
+    where the factor C_d comes from the reconstruction of a delta
+    function from its wavelet transform using the wavelet
+    function Y_0. This C_d is a constant for each wavelet
+    function.
+    """
+    C_d = wavelet.C_d
+    Y_00 = wavelet.time(0)
+
+    s0 = find_s0(wavelet, dt)
+    s = compute_optimal_scales(cwt.shape[1], dt, dj, s0)
+
+    # use the transpose to allow broadcasting
+    real_sum = np.sum(cwt.real.T / s ** .5, axis=-1).T
+    x_n = real_sum * (dj * dt ** .5 / (C_d * Y_00))
+
+    # add the mean back on (x_n is anomaly time series)
+    #x_n += self.data.mean(axis=self.axis, keepdims=True)
+
+    return x_n
+
+def cwt_time(data, wavelet, widths, dt, axis):
+    # wavelets can be complex so output is complex
+    output = np.zeros((len(widths),) + data.shape, dtype=np.complex)
+
+    # compute in time
+    slices = [None for _ in data.shape]
+    slices[axis] = slice(None)
+    for ind, width in enumerate(widths):
+        # number of points needed to capture wavelet
+        M = 10 * width / dt
+        # times to use, centred at zero
+        t = np.arange((-M + 1) / 2., (M + 1) / 2.) * dt
+        # sample wavelet and normalise
+        norm = (dt / width) ** .5
+        wavelet_data = norm * wavelet(t, width)
+        output[ind, :] = scipy.signal.fftconvolve(data,
+                                                  wavelet_data[slices],
+                                                  mode='same')
+    return output
+
+
+'''
 def cwt(data, wavelet=None, widths=None, dt=1, frequency=False, axis=-1):
     """Continuous wavelet transform using the Fourier transform
     convolution as used in Terrence and Compo.
@@ -84,26 +187,6 @@ def cwt(data, wavelet=None, widths=None, dt=1, frequency=False, axis=-1):
     elif not frequency:
         return cwt_time(data, wavelet, widths, dt, axis)
 
-
-def cwt_time(data, wavelet, widths, dt, axis):
-    # wavelets can be complex so output is complex
-    output = np.zeros((len(widths),) + data.shape, dtype=np.complex)
-
-    # compute in time
-    slices = [None for _ in data.shape]
-    slices[axis] = slice(None)
-    for ind, width in enumerate(widths):
-        # number of points needed to capture wavelet
-        M = 10 * width / dt
-        # times to use, centred at zero
-        t = np.arange((-M + 1) / 2., (M + 1) / 2.) * dt
-        # sample wavelet and normalise
-        norm = (dt / width) ** .5
-        wavelet_data = norm * wavelet(t, width)
-        output[ind, :] = scipy.signal.fftconvolve(data,
-                                                  wavelet_data[slices],
-                                                  mode='same')
-    return output
 
 
 def cwt_freq(data, wavelet, widths, dt, axis):
@@ -607,3 +690,4 @@ class WaveletTransform(object):
 WaveletAnalysis = WaveletTransform
 
 # TODO: derive C_d for given wavelet
+'''
