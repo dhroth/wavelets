@@ -49,6 +49,19 @@ def compute_optimal_scales(N, dt, dj, s0):
     # Largest scale
     J = int((1 / dj) * np.log2(N * dt / s0))
 
+
+    # choose J and s0 to be about human hearing range
+    # (these must not correspond exactly with frequencies,
+    #  since setting s0 to 1/10,000 led to major quality loss)
+    s0 = 1/20000
+    # J * dj = # octaves above s0 still audible
+    J = np.log2((1/20) / s0) / dj
+
+    # >>> w.scale_from_period(1/40)
+    # 0.024200332729859775
+    # >>> w.scale_from_period(1/10000)
+    # 9.68013309194391e-05
+
     sj = s0 * 2 ** (dj * np.arange(0, J + 1))
     return sj
 
